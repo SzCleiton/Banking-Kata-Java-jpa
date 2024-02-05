@@ -1,0 +1,13 @@
+dependencies {
+    implementation project(':core')
+
+    testImplementation project(path: ':adapter-base', configuration: 'testClasses')
+}
+
+bootJar {
+    enabled = false
+}
+
+jar {
+    enabled = true
+}

@@ -1,0 +1,17 @@
+dependencies {
+    implementation project(':core')
+    implementation project(':test-fixtures')
+    implementation 'org.springframework.boot:spring-boot-starter-test'
+
+    testImplementation project(':test-fixtures')
+    testImplementation project(path: ':adapter-base', configuration: 'testClasses')
+    testImplementation project(':adapter-generation-random')
+}
+
+bootJar {
+    enabled = false
+}
+
+jar {
+    enabled = true
+}

@@ -1,0 +1,257 @@
+plugins {
+    id 'org.springframework.boot' version '2.6.6'
+    id 'io.spring.dependency-management' version '1.0.11.RELEASE'
+    id 'java'
+    id 'groovy'
+    id 'info.solidsoft.pitest' version '1.7.4' apply false
+    id 'jacoco'
+    id 'com.adarshr.test-logger' version '3.2.0' // TODO: Check why not working
+    id 'org.flywaydb.flyway' version '8.1.0'
+    id 'org.sonarqube' version '3.5.0.2730'
+}
+
+apply plugin: 'info.solidsoft.pitest.aggregator'
+
+sonarqube {
+    properties {
+        property "sonar.projectKey", "szcleiton_banking-kata-java"
+        property "sonar.organization", "szcletion"
+        property "sonar.host.url", "https://sonarcloud.io"
+        property "sonar.sourceEncoding", "UTF-8"
+        property "sonar.issue.ignore.multicriteria", "S5960"
+        property "sonar.issue.ignore.multicriteria.S5960.resourceKey", "src/main/java/**/*"
+        property "sonar.issue.ignore.multicriteria.S5960.ruleKey", "java:S5960"
+    }
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'org.springframework.boot'
+    apply plugin: 'io.spring.dependency-management'
+    apply plugin: 'info.solidsoft.pitest'
+    apply plugin: 'jacoco'
+
+    pitest {
+        junit5PluginVersion = '0.15'
+        useClasspathFile = true
+
+        if(project.name in ['startup']) {
+            failWhenNoMutations = false
+        }
+
+        // Export for aggregation
+        outputFormats = [ "XML" ]
+        exportLineCoverage = true
+        timestampedReports = false
+    }
+
+    dependencies {
+        if(project.name in ['adapter-persistence-jpa']){
+            apply plugin: "org.flywaydb.flyway"
+            implementation 'org.flywaydb:flyway-core:8.1.0'
+        }
+    }
+
+    sonarqube {
+        properties {
+            property "sonar.sources", "src/main"
+            property "sonar.test.inclusions", "src/test"
+            property "sonar.jacoco.coverage.reportPaths", "$buildDir/reports/jacoco/jacocoTestReport/jacocoTestReport.xml"
+            property "sonar.junit.reportsPaths", "$buildDir/test-results/"
+        }
+    }
+
+    jacoco {
+        toolVersion = "0.8.8"
+    }
+
+    jacocoTestReport {
+        dependsOn test
+        reports {
+            xml.required = true
+            html.required = true
+        }
+    }
+
+    task codeCoverage {
+        dependsOn jacocoTestReport
+    }
+}
+
+allprojects {
+    group = 'com.optivem.kata.banking'
+    version = '0.0.1-SNAPSHOT'
+    sourceCompatibility = '17'
+
+    configurations {
+        compileOnly.extendsFrom annotationProcessor
+        testCompileOnly.extendsFrom annotationProcessor
+        testAnnotationProcessor.extendsFrom annotationProcessor
+    }
+
+    repositories {
+        mavenCentral()
+    }
+
+    // TODO: VC: Move these files into respective modules
+    dependencies {
+        compileOnly 'org.springframework.boot:spring-boot-starter-webflux:3.0.1' // Needed for HTTP client
+        compileOnly 'org.projectlombok:lombok'
+
+        annotationProcessor 'org.projectlombok:lombok'
+
+        implementation 'net.sizovs:pipelinr:0.7'
+
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        testImplementation 'org.springframework.boot:spring-boot-starter-webflux:2.7.0'
+        testImplementation 'org.codehaus.groovy:groovy-all:3.0.11'
+        testImplementation 'org.spockframework:spock-core:2.1-groovy-3.0'
+        testImplementation 'com.athaydes:spock-reports:2.3.0-groovy-3.0', { transitive = false }
+        testImplementation 'au.com.dius:pact-jvm-consumer-junit5:4.0.10' // NOTE: For contract testing
+        testImplementation 'au.com.dius:pact-jvm-consumer-java8:4.0.10' // NOTE: For contract testing
+        testImplementation 'au.com.dius:pact-jvm-provider-junit5:4.0.10' // NOTE: For contract testing
+    }
+
+    gradle.taskGraph.whenReady { graph ->
+        if (graph.hasTask(':test')) {
+            test.dependsOn(':testPrerequisite')
+        }
+    }
+
+    test {
+
+        useJUnitPlatform()
+
+        testLogging {
+            events "failed", "skipped"
+            showExceptions true
+            exceptionFormat "full"
+            showCauses true
+            showStackTraces true
+        }
+
+        finalizedBy jacocoTestReport
+    }
+
+}
+
+task testPrerequisite{
+    dependsOn 'adapter-persistence-jpa:flywayMigrate'
+}
+
+task coreTest {
+    dependsOn 'core:test'
+}
+
+task fakeAdapterTest {
+    dependsOn 'adapter-generation-fake:test'
+    dependsOn 'adapter-messaging-fake:test'
+    dependsOn 'adapter-microservice-fake:test'
+    dependsOn 'adapter-persistence-fake:test'
+    dependsOn 'adapter-thirdparty-fake:test'
+    dependsOn 'adapter-time-fake:test'
+}
+
+task realAdapterTest {
+    dependsOn 'adapter-generation-random:test'
+    dependsOn 'adapter-messaging-inmemory:test'
+    dependsOn 'adapter-messaging-rabbitmq:test'
+    dependsOn 'adapter-microservice-real:test'
+    dependsOn 'adapter-persistence-jpa:test'
+    dependsOn 'adapter-persistence-mongo:test'
+    dependsOn 'adapter-persistence-redis:test'
+    dependsOn 'adapter-restapi-spring:test'
+    dependsOn 'adapter-thirdparty-real:test'
+    dependsOn 'adapter-time-system:test'
+}
+
+task adapterTest {
+    dependsOn fakeAdapterTest
+    dependsOn realAdapterTest
+}
+
+task systemTest {
+    dependsOn 'startup:test'
+}
+
+task runApp {
+    dependsOn 'startup:bootRun'
+}
+
+task coreCodeCoverage {
+    dependsOn 'core:codeCoverage'
+}
+
+task fakeAdapterCodeCoverage {
+    dependsOn 'adapter-generation-fake:codeCoverage'
+    dependsOn 'adapter-messaging-fake:codeCoverage'
+    dependsOn 'adapter-microservice-fake:codeCoverage'
+    dependsOn 'adapter-persistence-fake:codeCoverage'
+    dependsOn 'adapter-thirdparty-fake:codeCoverage'
+    dependsOn 'adapter-time-fake:codeCoverage'
+}
+
+task realAdapterCodeCoverage {
+    dependsOn 'adapter-generation-random:codeCoverage'
+    dependsOn 'adapter-messaging-inmemory:codeCoverage'
+    dependsOn 'adapter-microservice-real:codeCoverage'
+    dependsOn 'adapter-persistence-jpa:codeCoverage'
+    dependsOn 'adapter-persistence-mongo:codeCoverage'
+    dependsOn 'adapter-persistence-redis:codeCoverage'
+    dependsOn 'adapter-restapi-spring:codeCoverage'
+    dependsOn 'adapter-thirdparty-real:codeCoverage'
+    dependsOn 'adapter-time-system:codeCoverage'
+}
+
+task adapterCodeCoverage {
+    dependsOn fakeAdapterCodeCoverage
+    dependsOn realAdapterCodeCoverage
+}
+
+task codeCoverage {
+    dependsOn coreCodeCoverage
+    dependsOn adapterCodeCoverage
+}
+
+task coreMutationTest {
+    dependsOn 'core:pitest'
+}
+
+task fakeAdapterMutationTest {
+    dependsOn 'adapter-generation-fake:pitest'
+    dependsOn 'adapter-messaging-fake:pitest'
+    dependsOn 'adapter-microservice-fake:pitest'
+    dependsOn 'adapter-persistence-fake:pitest'
+    dependsOn 'adapter-thirdparty-fake:pitest'
+    dependsOn 'adapter-time-fake:pitest'
+}
+
+task realAdapterMutationTest {
+    dependsOn 'adapter-generation-random:pitest'
+    dependsOn 'adapter-messaging-inmemory:pitest'
+    dependsOn 'adapter-microservice-real:pitest'
+    dependsOn 'adapter-persistence-jpa:pitest'
+    dependsOn 'adapter-persistence-mongo:pitest'
+    dependsOn 'adapter-persistence-redis:pitest'
+    dependsOn 'adapter-restapi-spring:pitest'
+    dependsOn 'adapter-thirdparty-real:pitest'
+    dependsOn 'adapter-time-system:pitest'
+}
+
+task adapterMutationTest {
+    dependsOn fakeAdapterMutationTest
+    dependsOn realAdapterMutationTest
+}
+
+task mutationTest {
+    dependsOn coreMutationTest
+    dependsOn adapterMutationTest
+}
+
+bootJar {
+    enabled = false
+}
+
+jar {
+    enabled = true
+}

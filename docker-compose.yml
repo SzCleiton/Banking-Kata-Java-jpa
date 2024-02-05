@@ -1,0 +1,103 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:14.1-alpine
+    container_name: postgres
+    restart: always
+    environment:
+      - POSTGRES_MULTIPLE_DATABASES=banking_kata_db,keycloak_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+    ports:
+      - '5400:5432'
+    networks:
+      - local
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./startup/src/main/resources/postgres:/docker-entrypoint-initdb.d
+  mongodb:
+    image: mongo:6.0.3
+    container_name: mongodb
+    ports:
+      - '27017:27017'
+    networks:
+      - local
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+
+  mongo-express:
+    image: mongo-express:0.54.0
+    container_name: mongo-express
+    restart: always
+    ports:
+      - '8081:8081'
+    networks:
+      - local
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+      - ME_CONFIG_MONGODB_SERVER=${ME_CONFIG_MONGODB_SERVER}
+  adminer:
+    image: adminer:4.8.1
+    container_name: adminer
+    restart: always
+    ports:
+      - '9000:8080'
+    networks:
+      - local
+    depends_on:
+      - postgres
+
+  keycloak:
+    image: jboss/keycloak:16.0.0 # NOTE: Custom image build working on Mac M1 (https://github.com/docker/for-mac/issues/5310)
+    container_name: keycloak
+    environment:
+      - DB_VENDOR=postgres
+      - DB_ADDR=postgres
+      - DB_DATABASE=keycloak_db
+      - DB_USER=postgres
+      - DB_PASSWORD=admin
+      - KEYCLOAK_IMPORT=/tmp/realm-export.json
+    ports:
+      - "10000:8080"
+    restart: unless-stopped
+    networks:
+      - local
+    volumes:
+      - ./startup/src/main/resources/keycloak/realm-export.json:/tmp/realm-export.json
+    depends_on:
+      - postgres
+  redis:
+    image: redis:6.2-alpine
+    container_name: redis
+    restart: always
+    ports:
+      - '6379:6379'
+    networks:
+      - local
+    command: redis-server --save 20 1 --loglevel warning --requirepass b4EA2xC6LlKnlizPu9bwRRrQM
+    volumes:
+      - redis:/data
+  rabbitmq:
+    container_name: rabbitmq-preload-conf
+    image: rabbitmq:3-management
+    ports:
+      - 5672:5672  # RabbitMQ default port
+      - 15672:15672  # RabbitMQ management plugin port
+    networks:
+      - local
+    volumes:
+      - ./startup/src/main/resources/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./startup/src/main/resources/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}  # RabbitMQ admin username
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS}  # RabbitMQ admin password
+volumes:
+  postgres:
+    driver: local
+  redis:
+    driver: local
+
+networks:
+  local:
